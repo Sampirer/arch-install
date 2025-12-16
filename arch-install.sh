@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #===============================================================================
-# Arch Linux Minimal Install Script v2.1
+# Arch Linux Minimal Install Script v2.2
 # 
 # Features:
 # - Interaktive Konfiguration
@@ -10,8 +10,9 @@
 # - Btrfs + Snapper
 # - Qtile Desktop
 #
-# v2.1 Fixes:
-# - NVIDIA-Module werden erst NACH Treiberinstallation in mkinitcpio eingetragen
+# Changelog:
+# v2.2: Passwörter werden interaktiv im Chroot gesetzt (keine Variable-Übergabe)
+# v2.1: NVIDIA-Module werden erst nach Treiberinstallation eingetragen
 #===============================================================================
 
 set -e
@@ -31,7 +32,7 @@ NC='\033[0m'
 print_header() {
     clear
     echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${NC}${BOLD}  Arch Linux Minimal Install Script v2.1                    ${NC}${BLUE}║${NC}"
+    echo -e "${BLUE}║${NC}${BOLD}  Arch Linux Minimal Install Script v2.2                    ${NC}${BLUE}║${NC}"
     echo -e "${BLUE}║${NC}  Btrfs + Snapper + Qtile                                    ${BLUE}║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -86,29 +87,6 @@ prompt_input() {
         read -p "$prompt: " result
         echo "$result"
     fi
-}
-
-prompt_password() {
-    local prompt="$1"
-    local pass1 pass2
-    
-    while true; do
-        read -sp "$prompt: " pass1
-        echo ""
-        read -sp "Passwort wiederholen: " pass2
-        echo ""
-        
-        if [[ "$pass1" == "$pass2" ]]; then
-            if [[ -z "$pass1" ]]; then
-                print_warn "Passwort darf nicht leer sein!"
-            else
-                echo "$pass1"
-                return 0
-            fi
-        else
-            print_warn "Passwörter stimmen nicht überein!"
-        fi
-    done
 }
 
 #===============================================================================
@@ -174,11 +152,8 @@ configure_user() {
     
     HOSTNAME=$(prompt_input "Hostname" "archlinux")
     
-    print_info "Root-Passwort festlegen:"
-    ROOT_PASSWORD=$(prompt_password "Root-Passwort")
-    
-    print_info "Passwort für $USERNAME festlegen:"
-    USER_PASSWORD=$(prompt_password "User-Passwort")
+    # Passwörter werden später interaktiv im Chroot gesetzt
+    print_info "Passwörter werden während der Installation interaktiv abgefragt."
 }
 
 configure_locale() {
@@ -423,6 +398,7 @@ show_summary() {
     echo -e "${BOLD}Benutzer:${NC}"
     echo "  Username:     $USERNAME"
     echo "  Hostname:     $HOSTNAME"
+    echo "  Passwörter:   Werden interaktiv abgefragt"
     echo ""
     
     echo -e "${BOLD}Locale:${NC}"
@@ -557,12 +533,10 @@ install_base() {
 install_configure() {
     print_section "System-Konfiguration"
     
-    # Variablen für Chroot exportieren
+    # Variablen für Chroot exportieren (KEINE Passwörter!)
     cat > /mnt/install-vars.sh << EOF
 export USERNAME="$USERNAME"
 export HOSTNAME="$HOSTNAME"
-export ROOT_PASSWORD="$ROOT_PASSWORD"
-export USER_PASSWORD="$USER_PASSWORD"
 export KEYMAP="$KEYMAP"
 export LOCALE="$LOCALE"
 export TIMEZONE="$TIMEZONE"
@@ -579,7 +553,6 @@ export INSTALL_FIREFOX="$INSTALL_FIREFOX"
 EOF
 
     # Chroot-Script erstellen
-    # WICHTIG: Bei NVIDIA werden Module erst nach Desktop-Installation hinzugefügt
     cat > /mnt/install-chroot.sh << 'CHROOT_SCRIPT'
 #!/bin/bash
 set -e
@@ -608,14 +581,12 @@ EOF
 echo "[✓] Konfiguriere Initramfs (Basis)"
 # Bei NVIDIA: Nur btrfs jetzt, NVIDIA-Module werden nach Treiberinstallation hinzugefügt
 if [[ "$NEEDS_NVIDIA" == "true" ]]; then
-    # Nur Basis-Module, NVIDIA kommt später
     BASE_MODULES="btrfs"
     if [[ "$GPU_TYPE" == "nvidia-intel" ]]; then
         BASE_MODULES="i915 btrfs"
     fi
     sed -i "s/^MODULES=(.*/MODULES=(${BASE_MODULES})/" /etc/mkinitcpio.conf
 else
-    # Nicht-NVIDIA: Alle Module jetzt eintragen
     if [[ -n "$MKINIT_MODULES" ]]; then
         sed -i "s/^MODULES=(.*/MODULES=(${MKINIT_MODULES} btrfs)/" /etc/mkinitcpio.conf
     else
@@ -628,7 +599,7 @@ mkinitcpio -P
 echo "[✓] Installiere GRUB"
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --removable
 
-# NVIDIA Kernel-Parameter (kann schon gesetzt werden, schadet nicht)
+# NVIDIA Kernel-Parameter
 if [[ "$GPU_TYPE" == "nvidia" || "$GPU_TYPE" == "nvidia-intel" ]]; then
     if [[ "$NVIDIA_DRM" == "true" ]]; then
         sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 nvidia-drm.modeset=1"/' /etc/default/grub
@@ -637,10 +608,10 @@ fi
 
 grub-mkconfig -o /boot/grub/grub.cfg
 
-echo "[✓] Konfiguriere Benutzer"
-echo "root:${ROOT_PASSWORD}" | chpasswd
+echo "[✓] Erstelle Benutzer ${USERNAME}"
 useradd -m -G wheel -s /bin/bash ${USERNAME}
-echo "${USERNAME}:${USER_PASSWORD}" | chpasswd
+
+echo "[✓] Aktiviere sudo für wheel-Gruppe"
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
 echo "[✓] Aktiviere NetworkManager"
@@ -652,6 +623,17 @@ CHROOT_SCRIPT
     chmod +x /mnt/install-chroot.sh
     arch-chroot /mnt /install-chroot.sh
     rm /mnt/install-chroot.sh /mnt/install-vars.sh
+    
+    # Passwörter interaktiv setzen
+    print_section "Passwörter setzen"
+    
+    echo ""
+    print_info "Setze Root-Passwort:"
+    arch-chroot /mnt passwd root
+    
+    echo ""
+    print_info "Setze Passwort für ${USERNAME}:"
+    arch-chroot /mnt passwd "$USERNAME"
     
     print_step "System-Konfiguration abgeschlossen"
 }
@@ -687,17 +669,13 @@ install_desktop() {
     [[ "$INSTALL_CUPS" == true ]] && desktop_packages+=(cups cups-pdf)
     [[ "$INSTALL_SNAPPER" == true ]] && desktop_packages+=(snapper snap-pac grub-btrfs inotify-tools)
     
-    # Chroot-Script für Desktop
-    cat > /mnt/install-desktop.sh << EOF
-#!/bin/bash
-set -e
-
-echo "[✓] Installiere Desktop-Pakete"
-pacman -S --noconfirm ${desktop_packages[@]}
-
-echo "[✓] Konfiguriere Tastaturlayout für X11"
-mkdir -p /etc/X11/xorg.conf.d
-cat > /etc/X11/xorg.conf.d/00-keyboard.conf << 'KBEOF'
+    # Desktop-Pakete installieren
+    print_step "Installiere Desktop-Pakete"
+    arch-chroot /mnt pacman -S --noconfirm "${desktop_packages[@]}"
+    
+    # X11 Keyboard Layout
+    print_step "Konfiguriere Tastaturlayout für X11"
+    cat > /mnt/etc/X11/xorg.conf.d/00-keyboard.conf << 'KBEOF'
 Section "InputClass"
     Identifier "keyboard"
     MatchIsKeyboard "yes"
@@ -705,36 +683,25 @@ Section "InputClass"
 EndSection
 KBEOF
 
-# Display Manager aktivieren
-if [[ -n "$DISPLAY_MANAGER" ]]; then
-    DM_SERVICE=\$(echo "$DISPLAY_MANAGER" | awk '{print \$1}')
-    echo "[✓] Aktiviere \$DM_SERVICE"
-    systemctl enable \$DM_SERVICE
-fi
-
-# Bluetooth aktivieren
-if [[ "$INSTALL_BLUETOOTH" == "true" ]]; then
-    echo "[✓] Aktiviere Bluetooth"
-    systemctl enable bluetooth
-fi
-
-# CUPS aktivieren
-if [[ "$INSTALL_CUPS" == "true" ]]; then
-    echo "[✓] Aktiviere CUPS"
-    systemctl enable cups
-fi
-
-echo "[✓] Desktop-Installation abgeschlossen"
-EOF
-
-    chmod +x /mnt/install-desktop.sh
-    arch-chroot /mnt /bin/bash -c "source /dev/stdin" << EOF
-export DISPLAY_MANAGER="$DISPLAY_MANAGER"
-export INSTALL_BLUETOOTH="$INSTALL_BLUETOOTH"
-export INSTALL_CUPS="$INSTALL_CUPS"
-/install-desktop.sh
-EOF
-    rm /mnt/install-desktop.sh
+    # Display Manager aktivieren
+    if [[ -n "$DISPLAY_MANAGER" ]]; then
+        local dm_service
+        dm_service=$(echo "$DISPLAY_MANAGER" | awk '{print $1}')
+        print_step "Aktiviere $dm_service"
+        arch-chroot /mnt systemctl enable "$dm_service"
+    fi
+    
+    # Bluetooth aktivieren
+    if [[ "$INSTALL_BLUETOOTH" == true ]]; then
+        print_step "Aktiviere Bluetooth"
+        arch-chroot /mnt systemctl enable bluetooth
+    fi
+    
+    # CUPS aktivieren
+    if [[ "$INSTALL_CUPS" == true ]]; then
+        print_step "Aktiviere CUPS"
+        arch-chroot /mnt systemctl enable cups
+    fi
     
     print_step "Desktop-Installation abgeschlossen"
     
@@ -742,25 +709,14 @@ EOF
     if [[ "$NEEDS_NVIDIA" == true ]]; then
         print_section "NVIDIA-Konfiguration"
         
-        cat > /mnt/install-nvidia.sh << EOF
-#!/bin/bash
-set -e
-
-echo "[✓] Konfiguriere NVIDIA-Module in Initramfs"
-sed -i "s/^MODULES=(.*/MODULES=(${MKINIT_MODULES} btrfs)/" /etc/mkinitcpio.conf
-
-echo "[✓] Baue Initramfs mit NVIDIA-Modulen neu"
-mkinitcpio -P
-
-echo "[✓] Aktualisiere GRUB"
-grub-mkconfig -o /boot/grub/grub.cfg
-
-echo "[✓] NVIDIA-Konfiguration abgeschlossen"
-EOF
+        print_step "Konfiguriere NVIDIA-Module in Initramfs"
+        sed -i "s/^MODULES=(.*/MODULES=(${MKINIT_MODULES} btrfs)/" /mnt/etc/mkinitcpio.conf
         
-        chmod +x /mnt/install-nvidia.sh
-        arch-chroot /mnt /install-nvidia.sh
-        rm /mnt/install-nvidia.sh
+        print_step "Baue Initramfs mit NVIDIA-Modulen neu"
+        arch-chroot /mnt mkinitcpio -P
+        
+        print_step "Aktualisiere GRUB"
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
         
         print_step "NVIDIA-Konfiguration abgeschlossen"
     fi
