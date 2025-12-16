@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #===============================================================================
-# Arch Linux Minimal Install Script v2.0
+# Arch Linux Minimal Install Script v2.1
 # 
 # Features:
 # - Interaktive Konfiguration
@@ -9,6 +9,9 @@
 # - Flexible Partitionierung
 # - Btrfs + Snapper
 # - Qtile Desktop
+#
+# v2.1 Fixes:
+# - NVIDIA-Module werden erst NACH Treiberinstallation in mkinitcpio eingetragen
 #===============================================================================
 
 set -e
@@ -28,7 +31,7 @@ NC='\033[0m'
 print_header() {
     clear
     echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${NC}${BOLD}  Arch Linux Minimal Install Script v2.0                    ${NC}${BLUE}║${NC}"
+    echo -e "${BLUE}║${NC}${BOLD}  Arch Linux Minimal Install Script v2.1                    ${NC}${BLUE}║${NC}"
     echo -e "${BLUE}║${NC}  Btrfs + Snapper + Qtile                                    ${BLUE}║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -276,31 +279,37 @@ configure_gpu() {
             GPU_TYPE="intel"
             GPU_PACKAGES="mesa intel-media-driver vulkan-intel"
             MKINIT_MODULES="i915"
+            NEEDS_NVIDIA=false
             ;;
         2)
             GPU_TYPE="amd"
             GPU_PACKAGES="mesa libva-mesa-driver vulkan-radeon"
             MKINIT_MODULES="amdgpu"
+            NEEDS_NVIDIA=false
             ;;
         3)
             GPU_TYPE="nvidia"
             GPU_PACKAGES="nvidia nvidia-utils nvidia-settings"
             MKINIT_MODULES="nvidia nvidia_modeset nvidia_uvm nvidia_drm"
+            NEEDS_NVIDIA=true
             ;;
         4)
             GPU_TYPE="nvidia-intel"
             GPU_PACKAGES="mesa intel-media-driver nvidia nvidia-utils nvidia-prime"
             MKINIT_MODULES="i915 nvidia nvidia_modeset nvidia_uvm nvidia_drm"
+            NEEDS_NVIDIA=true
             ;;
         5)
             GPU_TYPE="amd-intel"
             GPU_PACKAGES="mesa intel-media-driver libva-mesa-driver"
             MKINIT_MODULES="i915 amdgpu"
+            NEEDS_NVIDIA=false
             ;;
         *)
             GPU_TYPE="basic"
             GPU_PACKAGES="mesa"
             MKINIT_MODULES=""
+            NEEDS_NVIDIA=false
             ;;
     esac
     
@@ -561,6 +570,7 @@ export GPU_TYPE="$GPU_TYPE"
 export GPU_PACKAGES="$GPU_PACKAGES"
 export MKINIT_MODULES="$MKINIT_MODULES"
 export NVIDIA_DRM="${NVIDIA_DRM:-false}"
+export NEEDS_NVIDIA="${NEEDS_NVIDIA:-false}"
 export DISPLAY_MANAGER="$DISPLAY_MANAGER"
 export INSTALL_SNAPPER="$INSTALL_SNAPPER"
 export INSTALL_BLUETOOTH="$INSTALL_BLUETOOTH"
@@ -569,6 +579,7 @@ export INSTALL_FIREFOX="$INSTALL_FIREFOX"
 EOF
 
     # Chroot-Script erstellen
+    # WICHTIG: Bei NVIDIA werden Module erst nach Desktop-Installation hinzugefügt
     cat > /mnt/install-chroot.sh << 'CHROOT_SCRIPT'
 #!/bin/bash
 set -e
@@ -594,17 +605,22 @@ cat > /etc/hosts << EOF
 127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
 EOF
 
-echo "[✓] Konfiguriere Initramfs"
-MODULES_LINE="MODULES=(btrfs"
-if [[ -n "$MKINIT_MODULES" ]]; then
-    MODULES_LINE="MODULES=(${MKINIT_MODULES} btrfs"
-fi
-MODULES_LINE="${MODULES_LINE})"
-sed -i "s/^MODULES=(.*/MODULES=(${MKINIT_MODULES} btrfs)/" /etc/mkinitcpio.conf
-
-# NVIDIA DRM Hook
-if [[ "$NVIDIA_DRM" == "true" ]]; then
-    sed -i 's/^HOOKS=(\(.*\))/HOOKS=(\1 nvidia)/' /etc/mkinitcpio.conf
+echo "[✓] Konfiguriere Initramfs (Basis)"
+# Bei NVIDIA: Nur btrfs jetzt, NVIDIA-Module werden nach Treiberinstallation hinzugefügt
+if [[ "$NEEDS_NVIDIA" == "true" ]]; then
+    # Nur Basis-Module, NVIDIA kommt später
+    BASE_MODULES="btrfs"
+    if [[ "$GPU_TYPE" == "nvidia-intel" ]]; then
+        BASE_MODULES="i915 btrfs"
+    fi
+    sed -i "s/^MODULES=(.*/MODULES=(${BASE_MODULES})/" /etc/mkinitcpio.conf
+else
+    # Nicht-NVIDIA: Alle Module jetzt eintragen
+    if [[ -n "$MKINIT_MODULES" ]]; then
+        sed -i "s/^MODULES=(.*/MODULES=(${MKINIT_MODULES} btrfs)/" /etc/mkinitcpio.conf
+    else
+        sed -i "s/^MODULES=(.*/MODULES=(btrfs)/" /etc/mkinitcpio.conf
+    fi
 fi
 
 mkinitcpio -P
@@ -612,7 +628,7 @@ mkinitcpio -P
 echo "[✓] Installiere GRUB"
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --removable
 
-# NVIDIA Kernel-Parameter
+# NVIDIA Kernel-Parameter (kann schon gesetzt werden, schadet nicht)
 if [[ "$GPU_TYPE" == "nvidia" || "$GPU_TYPE" == "nvidia-intel" ]]; then
     if [[ "$NVIDIA_DRM" == "true" ]]; then
         sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 nvidia-drm.modeset=1"/' /etc/default/grub
@@ -721,6 +737,33 @@ EOF
     rm /mnt/install-desktop.sh
     
     print_step "Desktop-Installation abgeschlossen"
+    
+    # NVIDIA: Jetzt Module hinzufügen und mkinitcpio neu bauen
+    if [[ "$NEEDS_NVIDIA" == true ]]; then
+        print_section "NVIDIA-Konfiguration"
+        
+        cat > /mnt/install-nvidia.sh << EOF
+#!/bin/bash
+set -e
+
+echo "[✓] Konfiguriere NVIDIA-Module in Initramfs"
+sed -i "s/^MODULES=(.*/MODULES=(${MKINIT_MODULES} btrfs)/" /etc/mkinitcpio.conf
+
+echo "[✓] Baue Initramfs mit NVIDIA-Modulen neu"
+mkinitcpio -P
+
+echo "[✓] Aktualisiere GRUB"
+grub-mkconfig -o /boot/grub/grub.cfg
+
+echo "[✓] NVIDIA-Konfiguration abgeschlossen"
+EOF
+        
+        chmod +x /mnt/install-nvidia.sh
+        arch-chroot /mnt /install-nvidia.sh
+        rm /mnt/install-nvidia.sh
+        
+        print_step "NVIDIA-Konfiguration abgeschlossen"
+    fi
 }
 
 install_snapper() {
