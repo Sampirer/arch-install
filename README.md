@@ -1,162 +1,215 @@
-# Arch Linux Minimal Install Script
+# Arch Linux Minimal Install Script v2.0
 
-Automatisiertes Installationsscript für ein minimales Arch Linux Setup mit Qtile.
+Interaktives Installationsscript für ein minimales Arch Linux Setup.
 
 ## Features
 
-- **Btrfs** mit Snapper-kompatibler Subvolume-Struktur
-- **Snapper** für automatische Snapshots + GRUB-Integration
-- **Qtile** Tiling Window Manager
-- **SDDM** Display Manager
-- **Pipewire** Audio
-- Deutsches Tastaturlayout (X11 + TTY)
+- **Interaktive Konfiguration** – Alle Einstellungen werden abgefragt
+- **Hardware-Erkennung** – CPU und GPU werden automatisch erkannt
+- **Flexible Partitionierung** – Anpassbare Größen für EFI, Swap, Root
+- **Multi-GPU-Support** – Intel, AMD, NVIDIA, Hybrid (Optimus)
+- **Btrfs + Snapper** – Automatische Snapshots mit GRUB-Integration
+- **Qtile Desktop** – Minimaler Tiling Window Manager
 
-## Ziel-Hardware
+## Unterstützte Hardware
 
-Primär getestet auf **Dell Latitude 7340** (Intel CPU/GPU).
+| Komponente | Optionen |
+|------------|----------|
+| **CPU** | Intel, AMD (automatische Microcode-Auswahl) |
+| **GPU** | Intel, AMD, NVIDIA, Intel+NVIDIA (Optimus), Intel+AMD |
+| **Disk** | NVMe, SATA, VirtIO |
 
-Für andere Hardware müssen ggf. angepasst werden:
-- `intel-ucode` → `amd-ucode`
-- `intel-media-driver` → AMD/NVIDIA Treiber
-- `MODULES=(i915 btrfs)` in mkinitcpio.conf
+## Schnellstart
+
+### 1. Arch ISO booten
+
+### 2. Netzwerk verbinden
+
+```bash
+# WLAN
+iwctl
+station wlan0 connect "SSID"
+
+# Ethernet funktioniert automatisch
+```
+
+### 3. Script herunterladen und starten
+
+```bash
+curl -LO https://raw.githubusercontent.com/Sampirer/arch-install/main/arch-install.sh
+chmod +x arch-install.sh
+./arch-install.sh
+```
+
+## Interaktive Abfragen
+
+Das Script fragt folgende Informationen ab:
+
+### Benutzer
+
+| Abfrage | Standard | Beschreibung |
+|---------|----------|--------------|
+| Username | carsten | Login-Name |
+| Hostname | archlinux | System-Hostname |
+| Root-Passwort | - | Wird abgefragt |
+| User-Passwort | - | Wird abgefragt |
+
+### Locale
+
+| Abfrage | Standard | Beschreibung |
+|---------|----------|--------------|
+| Tastaturlayout | de-latin1 | TTY + X11 |
+| Locale | de_DE.UTF-8 | Systemsprache |
+| Zeitzone | Europe/Berlin | Systemzeit |
+
+### Laufwerk
+
+| Abfrage | Standard | Beschreibung |
+|---------|----------|--------------|
+| Disk | /dev/nvme0n1 | Ziel-Laufwerk |
+| EFI-Größe | 1G | EFI-Partition |
+| Swap-Größe | RAM + 2G | Für Hibernate |
+
+### GPU
+
+| Option | Pakete |
+|--------|--------|
+| Intel | mesa, intel-media-driver, vulkan-intel |
+| AMD | mesa, libva-mesa-driver, vulkan-radeon |
+| NVIDIA | nvidia, nvidia-utils, nvidia-settings |
+| NVIDIA + Intel | Beide + nvidia-prime |
+| AMD + Intel | mesa, beide Treiber |
+
+### Desktop
+
+| Abfrage | Optionen |
+|---------|----------|
+| Display Manager | SDDM, LightDM, Ly, Keiner |
+| Firefox | Ja/Nein |
+| Brave | Hinweis nach Installation (AUR) |
+
+### Extras
+
+| Abfrage | Standard |
+|---------|----------|
+| Snapper | Ja |
+| Bluetooth | Nein |
+| CUPS (Drucker) | Nein |
 
 ## Partitionsschema
 
-| Partition | Größe | Typ | Dateisystem |
-|-----------|-------|-----|-------------|
-| p1 | 1 GB | EFI | FAT32 |
-| p2 | 20 GB | Swap | swap |
-| p3 | Rest | Root | Btrfs |
+```
+┌─────────────────────────────────────────────────┐
+│ Disk (z.B. /dev/nvme0n1)                        │
+├──────────┬──────────┬───────────────────────────┤
+│ p1: EFI  │ p2: Swap │ p3: Root (Btrfs)          │
+│ 1 GB     │ ~20 GB   │ Rest                      │
+│ FAT32    │          │                           │
+└──────────┴──────────┴───────────────────────────┘
+```
 
 ### Btrfs-Subvolumes
 
 | Subvolume | Mountpoint | Zweck |
 |-----------|------------|-------|
-| @ | / | Root-System |
+| @ | / | System |
 | @home | /home | Benutzerdaten |
-| @snapshots | /.snapshots | Snapper-Snapshots |
-| @var_log | /var/log | Logs (von Snapshots ausgenommen) |
+| @snapshots | /.snapshots | Snapper |
+| @var_log | /var/log | Logs |
+| @var_cache | /var/cache | Paket-Cache |
+| @var_tmp | /var/tmp | Temporär |
 
-## Verwendung
+## Nach der Installation
 
-### 1. Arch ISO booten
-
-Von USB booten und Netzwerk verbinden:
-
-```bash
-# WLAN
-iwctl
-station wlan0 connect SSID
-
-# Tastatur
-loadkeys de-latin1
-```
-
-### 2. Script herunterladen
+### Dotfiles einrichten
 
 ```bash
-curl -LO https://raw.githubusercontent.com/Sampirer/arch-install/main/arch-install.sh
-chmod +x arch-install.sh
-```
+# SSH-Key für GitHub erstellen
+ssh-keygen -t ed25519 -C "email@example.com"
+cat ~/.ssh/id_ed25519.pub
+# Key in GitHub hinterlegen
 
-### 3. Konfiguration anpassen
-
-```bash
-nano arch-install.sh
-```
-
-Anpassen im Abschnitt `KONFIGURATION`:
-
-```bash
-USERNAME="carsten"      # Dein Benutzername
-HOSTNAME="arch"         # Hostname
-DISK="/dev/nvme0n1"     # Ziel-Laufwerk (prüfen mit: lsblk)
-SWAP_SIZE="20G"         # Swap-Größe (≥ RAM für Hibernate)
-```
-
-### 4. Ausführen
-
-```bash
-./arch-install.sh
-```
-
-Das Script führt durch:
-1. Vorprüfungen (UEFI, Internet, Disk)
-2. Partitionierung
-3. Basis-Installation
-4. System-Konfiguration
-5. Desktop-Installation
-6. Snapper-Konfiguration
-7. Benutzer-Setup
-
-### 5. Nach dem Reboot
-
-```bash
 # Dotfiles klonen
 git clone git@github.com:Sampirer/dotfiles.git ~/dotfiles
 cd ~/dotfiles
-
-# Configs verlinken
-stow bash
-stow qtile
-stow x11
-stow alacritty
+stow bash qtile x11 alacritty
 ```
 
-## Installierte Pakete
+### AUR-Helper + Brave
 
-### Basis
+```bash
+# yay installieren
+git clone https://aur.archlinux.org/yay.git /tmp/yay
+cd /tmp/yay && makepkg -si
 
-- base, linux, linux-firmware, intel-ucode
-- btrfs-progs
-- grub, efibootmgr
-- networkmanager
-- sudo, nano, vim, git, base-devel
+# Brave installieren
+yay -S brave-bin
+```
 
-### Desktop
+### Snapshot erstellen
 
-- xorg-server, xorg-xinit, xorg-xrandr
-- qtile, python-psutil, python-iwlib
-- alacritty
-- pipewire, wireplumber, pavucontrol
-- thunar, firefox, feh, picom, dunst
-- sddm
-- ttf-dejavu, ttf-liberation, noto-fonts
+```bash
+# Nach erfolgreicher Einrichtung
+sudo snapper -c root create -d "Post-Setup"
+```
 
-### Snapper
+## NVIDIA-Hinweise
 
-- snapper, snap-pac, grub-btrfs, inotify-tools
+Bei NVIDIA-GPUs:
 
-## Tastenkombinationen (Qtile)
+1. **DRM Modesetting** wird automatisch aktiviert (empfohlen)
+2. **Kernel-Parameter** `nvidia-drm.modeset=1` wird gesetzt
+3. **Hybrid (Optimus):** `nvidia-prime` für GPU-Switching
 
-| Taste | Aktion |
-|-------|--------|
-| Super + Enter | Terminal |
-| Super + w | Fenster schließen |
-| Super + r | Spawn-Prompt |
-| Super + 1-9 | Workspace wechseln |
-| Super + Shift + q | Qtile beenden |
+GPU wechseln (Hybrid):
 
-## Snapshot-Rollback
+```bash
+# Mit NVIDIA starten
+prime-run application
 
-Falls etwas schiefgeht:
+# Standard = Intel (Stromsparen)
+```
 
-1. Im GRUB-Menü "Arch Linux Snapshots" wählen
+## Rollback bei Problemen
+
+1. Im GRUB-Menü: **"Arch Linux Snapshots"** wählen
 2. Gewünschten Snapshot booten
-3. Nach dem Boot: `sudo snapper -c root rollback`
+3. Nach dem Boot:
+
+```bash
+sudo snapper -c root rollback
+sudo reboot
+```
 
 ## Dateien
 
 ```
 arch-install/
-├── arch-install.sh     # Haupt-Installationsscript
-└── README.md           # Diese Datei
+├── arch-install.sh    # Installations-Script
+└── README.md          # Diese Datei
 ```
 
 ## Verwandte Repositories
 
-- [dotfiles](https://github.com/Sampirer/dotfiles) - Konfigurationsdateien
+- [dotfiles](https://github.com/Sampirer/dotfiles) – Konfigurationsdateien
 
 ## Lizenz
 
 MIT
+
+## Changelog
+
+### v2.0
+
+- Interaktive Konfiguration
+- Hardware-Erkennung (CPU, GPU)
+- Multi-GPU-Support (Intel, AMD, NVIDIA, Hybrid)
+- Flexible Partitionsgrößen
+- Optionale Pakete (Bluetooth, CUPS)
+- Verbesserte Fehlerbehandlung
+
+### v1.0
+
+- Initiale Version
+- Hardcoded Konfiguration
+- Nur Intel-Support
