@@ -389,6 +389,12 @@ configure_extras() {
     else
         INSTALL_CUPS=false
     fi
+    
+    if confirm "Dotfiles-Abhängigkeiten installieren? (JetBrains Mono, Starship, etc.)" "y"; then
+        INSTALL_DOTFILES_DEPS=true
+    else
+        INSTALL_DOTFILES_DEPS=false
+    fi
 }
 
 #===============================================================================
@@ -433,6 +439,7 @@ show_summary() {
     echo "  Snapper:      $INSTALL_SNAPPER"
     echo "  Bluetooth:    $INSTALL_BLUETOOTH"
     echo "  CUPS:         $INSTALL_CUPS"
+    echo "  Dotfiles:     $INSTALL_DOTFILES_DEPS"
     echo ""
     
     print_warn "ACHTUNG: Alle Daten auf $DISK werden gelöscht!"
@@ -572,6 +579,7 @@ export INSTALL_SNAPPER="$INSTALL_SNAPPER"
 export INSTALL_BLUETOOTH="$INSTALL_BLUETOOTH"
 export INSTALL_CUPS="$INSTALL_CUPS"
 export INSTALL_FIREFOX="$INSTALL_FIREFOX"
+export INSTALL_DOTFILES_DEPS="$INSTALL_DOTFILES_DEPS"
 EOF
 
     # Chroot-Script erstellen
@@ -799,6 +807,60 @@ SNAPPER_SCRIPT
     print_step "Snapper-Konfiguration abgeschlossen"
 }
 
+install_dotfiles_dependencies() {
+    if [[ "$INSTALL_DOTFILES_DEPS" != true ]]; then
+        return
+    fi
+    
+    print_section "Dotfiles-Abhängigkeiten"
+    
+    # Dotfiles-spezifische Pakete
+    local dotfiles_packages=(
+        # Desktop & WM (qtile bereits installiert)
+        rofi
+        # Terminal
+        starship fzf zoxide
+        # Schriften
+        ttf-jetbrains-mono-nerd
+        # Tools
+        flameshot
+        # Audio
+        pasystray
+    )
+    
+    print_step "Installiere Dotfiles-Abhängigkeiten"
+    arch-chroot /mnt pacman -S --noconfirm "${dotfiles_packages[@]}"
+    
+    # Starship für User konfigurieren
+    cat > /mnt/install-starship.sh << EOF
+#!/bin/bash
+set -e
+
+# Als User ausführen
+su - ${USERNAME} << 'STARSHIPEOF'
+
+echo "[✓] Konfiguriere Starship"
+# Starship zu .bashrc hinzufügen
+if ! grep -q "starship init bash" ~/.bashrc; then
+    echo 'eval "\$(starship init bash)"' >> ~/.bashrc
+fi
+
+# Zoxide zu .bashrc hinzufügen
+if ! grep -q "zoxide init bash" ~/.bashrc; then
+    echo 'eval "\$(zoxide init bash)"' >> ~/.bashrc
+fi
+
+echo "[✓] Starship und Zoxide konfiguriert"
+STARSHIPEOF
+EOF
+
+    chmod +x /mnt/install-starship.sh
+    arch-chroot /mnt /install-starship.sh
+    rm /mnt/install-starship.sh
+    
+    print_step "Dotfiles-Abhängigkeiten installiert"
+}
+
 install_user_setup() {
     print_section "Benutzer-Setup"
     
@@ -935,6 +997,7 @@ main() {
     install_configure
     install_desktop
     install_snapper
+    install_dotfiles_dependencies
     install_user_setup
     
     # Abschluss
