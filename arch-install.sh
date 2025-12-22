@@ -697,7 +697,7 @@ install_desktop() {
     # Optionale Pakete
     [[ "$INSTALL_FIREFOX" == true ]] && desktop_packages+=(firefox)
     [[ -n "$DISPLAY_MANAGER" ]] && desktop_packages+=($DISPLAY_MANAGER)
-    [[ "$INSTALL_BLUETOOTH" == true ]] && desktop_packages+=(bluez bluez-utils)
+    [[ "$INSTALL_BLUETOOTH" == true ]] && desktop_packages+=(bluez blueman)
     [[ "$INSTALL_CUPS" == true ]] && desktop_packages+=(cups cups-pdf)
     [[ "$INSTALL_SNAPPER" == true ]] && desktop_packages+=(snapper snap-pac grub-btrfs inotify-tools)
     
@@ -817,19 +817,45 @@ install_dotfiles_dependencies() {
     # Dotfiles-spezifische Pakete
     local dotfiles_packages=(
         # Desktop & WM (qtile bereits installiert)
-        rofi
+        rofi feh
         # Terminal
         starship fzf zoxide
         # Schriften
         ttf-jetbrains-mono-nerd
         # Tools
-        flameshot
+        flameshot udiskie
         # Audio
         pasystray
     )
     
     print_step "Installiere Dotfiles-Abhängigkeiten"
     arch-chroot /mnt pacman -S --noconfirm "${dotfiles_packages[@]}"
+    
+    # AUR-Helper und AUR-Pakete installieren
+    cat > /mnt/install-aur.sh << EOF
+#!/bin/bash
+set -e
+
+# Als User ausführen
+su - ${USERNAME} << 'AUREOF'
+
+echo "[✓] Installiere yay AUR-Helper"
+cd /tmp
+git clone https://aur.archlinux.org/yay.git
+cd yay
+makepkg -si --noconfirm
+cd ~
+
+echo "[✓] Installiere blesh (AUR)"
+yay -S --noconfirm blesh
+
+echo "[✓] AUR-Pakete installiert"
+AUREOF
+EOF
+
+    chmod +x /mnt/install-aur.sh
+    arch-chroot /mnt /install-aur.sh
+    rm /mnt/install-aur.sh
     
     # Starship für User konfigurieren
     cat > /mnt/install-starship.sh << EOF
@@ -917,6 +943,45 @@ EOF
     print_step "Benutzer-Setup abgeschlossen"
 }
 
+install_dotfiles_setup() {
+    if [[ "$INSTALL_DOTFILES_DEPS" != true ]]; then
+        return
+    fi
+    
+    print_section "Dotfiles-Setup"
+    
+    cat > /mnt/install-dotfiles.sh << EOF
+#!/bin/bash
+set -e
+
+# Als User ausführen
+su - ${USERNAME} << 'DOTFILESEOF'
+
+echo "[✓] Klone Dotfiles-Repository"
+git clone https://github.com/Sampirer/dotfiles.git ~/dotfiles
+
+echo "[✓] Klone Scripts-Repository"
+git clone https://github.com/Sampirer/scripts.git ~/scripts
+
+echo "[✓] Stow Dotfiles-Konfigurationen"
+cd ~/dotfiles
+stow bash qtile alacritty picom dunst rofi starship blesh aider x11
+
+echo "[✓] Stow Scripts"
+cd ~/scripts
+stow .
+
+echo "[✓] Dotfiles-Setup abgeschlossen"
+DOTFILESEOF
+EOF
+
+    chmod +x /mnt/install-dotfiles.sh
+    arch-chroot /mnt /install-dotfiles.sh
+    rm /mnt/install-dotfiles.sh
+    
+    print_step "Dotfiles-Setup abgeschlossen"
+}
+
 #===============================================================================
 # VORPRÜFUNGEN
 #===============================================================================
@@ -999,6 +1064,7 @@ main() {
     install_snapper
     install_dotfiles_dependencies
     install_user_setup
+    install_dotfiles_setup
     
     # Abschluss
     print_header
@@ -1008,11 +1074,17 @@ main() {
     echo -e "${GREEN}Nächste Schritte nach dem Reboot:${NC}"
     echo ""
     echo "  1. Mit '$USERNAME' einloggen"
-    echo ""
-    echo "  2. Dotfiles klonen (optional):"
-    echo "     git clone git@github.com:Sampirer/dotfiles.git ~/dotfiles"
-    echo "     cd ~/dotfiles && stow bash qtile x11 alacritty"
-    echo ""
+    if [[ "$INSTALL_DOTFILES_DEPS" == true ]]; then
+        echo "  2. Dotfiles und Scripts sind bereits eingerichtet!"
+        echo ""
+    else
+        echo "  2. Dotfiles klonen (optional):"
+        echo "     git clone https://github.com/Sampirer/dotfiles.git ~/dotfiles"
+        echo "     cd ~/dotfiles && stow bash qtile alacritty picom dunst rofi starship blesh aider x11"
+        echo "     git clone https://github.com/Sampirer/scripts.git ~/scripts"
+        echo "     cd ~/scripts && stow ."
+        echo ""
+    fi
     
     if [[ "$INSTALL_BRAVE_HINT" == true ]]; then
         echo "  3. Brave Browser installieren (AUR):"
