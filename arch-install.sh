@@ -181,9 +181,13 @@ configure_disk() {
     
     DISK=$(prompt_input "Ziel-Laufwerk" "/dev/nvme0n1")
     
-    # Prüfen ob Laufwerk existiert
-    while [[ ! -b "$DISK" ]]; do
-        print_warn "Laufwerk $DISK nicht gefunden!"
+    # Prüfen ob Laufwerk existiert und validieren
+    while [[ ! -b "$DISK" ]] || [[ "$DISK" =~ ^/dev/(loop|ram) ]]; do
+        if [[ ! -b "$DISK" ]]; then
+            print_warn "Laufwerk $DISK nicht gefunden!"
+        else
+            print_warn "Laufwerk $DISK ist nicht für Installation geeignet!"
+        fi
         DISK=$(prompt_input "Ziel-Laufwerk" "/dev/nvme0n1")
     done
     
@@ -453,6 +457,12 @@ install_partition() {
     PART_SWAP="${PART_PREFIX}2"
     PART_ROOT="${PART_PREFIX}3"
     
+    print_warn "LETZTE WARNUNG: Alle Daten auf $DISK werden unwiderruflich gelöscht!"
+    if ! confirm "Wirklich fortfahren?" "n"; then
+        print_error "Installation abgebrochen."
+        exit 1
+    fi
+    
     print_step "Lösche bestehende Partitionstabelle"
     sgdisk --zap-all "$DISK"
     
@@ -463,7 +473,19 @@ install_partition() {
     
     # Kernel über Partitionsänderungen informieren
     partprobe "$DISK"
-    sleep 2
+    sleep 3
+    
+    # Warten bis Partitionen verfügbar sind
+    local timeout=10
+    while [[ $timeout -gt 0 ]] && [[ ! -b "$PART_ROOT" ]]; do
+        sleep 1
+        ((timeout--))
+    done
+    
+    if [[ ! -b "$PART_ROOT" ]]; then
+        print_error "Partitionen nicht verfügbar nach Erstellung!"
+        exit 1
+    fi
     
     print_step "Formatiere EFI-Partition"
     mkfs.fat -F32 "$PART_EFI"
@@ -488,7 +510,7 @@ install_partition() {
     umount /mnt
     
     print_step "Mounte Subvolumes"
-    local btrfs_opts="noatime,compress=zstd,space_cache=v2"
+    local btrfs_opts="noatime,compress=zstd"
     
     mount -o ${btrfs_opts},subvol=@ "$PART_ROOT" /mnt
     mkdir -p /mnt/{boot/efi,home,.snapshots,var/log,var/cache,var/tmp}
@@ -645,8 +667,10 @@ install_desktop() {
     local desktop_packages=(
         # Xorg
         xorg-server xorg-xinit xorg-xrandr xorg-xsetroot
-        # GPU
+        # GPU (mit Fehlerbehandlung)
         $GPU_PACKAGES
+        # Zusätzliche Mesa-Pakete für bessere Kompatibilität
+        mesa-utils
         # Qtile
         qtile python-psutil python-iwlib
         # Terminal
@@ -748,10 +772,10 @@ chmod 750 /.snapshots
 
 # Snapper-Einstellungen
 sed -i 's/TIMELINE_CREATE="no"/TIMELINE_CREATE="yes"/' /etc/snapper/configs/root
-sed -i 's/TIMELINE_LIMIT_HOURLY="[0-9]*"/TIMELINE_LIMIT_HOURLY="5"/' /etc/snapper/configs/root
-sed -i 's/TIMELINE_LIMIT_DAILY="[0-9]*"/TIMELINE_LIMIT_DAILY="7"/' /etc/snapper/configs/root
-sed -i 's/TIMELINE_LIMIT_WEEKLY="[0-9]*"/TIMELINE_LIMIT_WEEKLY="4"/' /etc/snapper/configs/root
-sed -i 's/TIMELINE_LIMIT_MONTHLY="[0-9]*"/TIMELINE_LIMIT_MONTHLY="2"/' /etc/snapper/configs/root
+sed -i 's/TIMELINE_LIMIT_HOURLY="[0-9]*"/TIMELINE_LIMIT_HOURLY="3"/' /etc/snapper/configs/root
+sed -i 's/TIMELINE_LIMIT_DAILY="[0-9]*"/TIMELINE_LIMIT_DAILY="5"/' /etc/snapper/configs/root
+sed -i 's/TIMELINE_LIMIT_WEEKLY="[0-9]*"/TIMELINE_LIMIT_WEEKLY="3"/' /etc/snapper/configs/root
+sed -i 's/TIMELINE_LIMIT_MONTHLY="[0-9]*"/TIMELINE_LIMIT_MONTHLY="1"/' /etc/snapper/configs/root
 sed -i 's/TIMELINE_LIMIT_YEARLY="[0-9]*"/TIMELINE_LIMIT_YEARLY="0"/' /etc/snapper/configs/root
 
 # Timer aktivieren

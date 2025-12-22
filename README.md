@@ -1,4 +1,4 @@
-# Arch Linux Minimal Install Script v2.0
+# Arch Linux Minimal Install Script v2.2
 
 Interaktives Installationsscript für ein minimales Arch Linux Setup.
 
@@ -198,6 +198,17 @@ arch-install/
 MIT
 
 ## Changelog
+
+### v2.2
+
+- Passwörter werden interaktiv im Chroot gesetzt (keine Variable-Übergabe)
+- Verbesserte Eingabevalidierung und Sicherheitsprüfungen
+- Optimierte Btrfs-Einstellungen
+- Robustere Partitionierung mit Fehlerbehandlung
+
+### v2.1
+
+- NVIDIA-Module werden erst nach Treiberinstallation eingetragen
 
 ### v2.0
 
