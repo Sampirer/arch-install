@@ -2,6 +2,9 @@
 
 Interaktives Installationsscript für ein minimales Arch Linux Setup.
 
+## Screenshots
+![Terminal](screenshots/terminal.png)
+
 ## Features
 
 - **Interaktive Konfiguration** – Alle Einstellungen werden abgefragt
