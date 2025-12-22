@@ -10,6 +10,8 @@ Interaktives Installationsscript für ein minimales Arch Linux Setup.
 - **Multi-GPU-Support** – Intel, AMD, NVIDIA, Hybrid (Optimus)
 - **Btrfs + Snapper** – Automatische Snapshots mit GRUB-Integration
 - **Qtile Desktop** – Minimaler Tiling Window Manager
+- **Automatische Dotfiles** – Optional: Dotfiles und Scripts automatisch einrichten
+- **AUR-Support** – yay AUR-Helper und blesh automatisch installiert
 
 ## Unterstützte Hardware
 
@@ -40,6 +42,32 @@ curl -LO https://raw.githubusercontent.com/Sampirer/arch-install/main/arch-insta
 chmod +x arch-install.sh
 ./arch-install.sh
 ```
+
+## Installierte Pakete
+
+### Basis-System
+- **Kernel:** linux, linux-firmware
+- **Bootloader:** grub, efibootmgr
+- **Dateisystem:** btrfs-progs
+- **Netzwerk:** networkmanager
+- **Tools:** sudo, nano, vim, git, base-devel
+
+### Desktop-Umgebung
+- **Display Server:** xorg-server, xorg-xinit
+- **Window Manager:** qtile, python-psutil, python-iwlib
+- **Terminal:** alacritty
+- **Compositor:** picom
+- **Benachrichtigungen:** dunst
+- **Launcher:** rofi (bei Dotfiles-Installation)
+- **Dateimanager:** thunar
+- **Wallpaper:** feh
+- **Audio:** pipewire, pipewire-pulse, wireplumber, pavucontrol
+
+### Dotfiles-Abhängigkeiten (optional)
+- **Schriften:** ttf-jetbrains-mono-nerd, ttf-font-awesome
+- **Shell:** starship, fzf, zoxide, blesh (AUR)
+- **Tools:** flameshot, udiskie, pasystray
+- **AUR-Helper:** yay
 
 ## Interaktive Abfragen
 
@@ -95,6 +123,7 @@ Das Script fragt folgende Informationen ab:
 | Snapper | Ja |
 | Bluetooth | Nein |
 | CUPS (Drucker) | Nein |
+| Dotfiles-Abhängigkeiten | Ja |
 
 ## Partitionsschema
 
@@ -121,28 +150,43 @@ Das Script fragt folgende Informationen ab:
 
 ## Nach der Installation
 
-### Dotfiles einrichten
+### Automatische Dotfiles-Einrichtung
+
+Wenn "Dotfiles-Abhängigkeiten" aktiviert wurde, sind bereits installiert:
+
+- **yay AUR-Helper** für AUR-Pakete
+- **blesh** (erweiterte Bash-Shell)
+- **JetBrains Mono Nerd Font** für Icons
+- **Starship** Prompt (bereits konfiguriert)
+- **Dotfiles** und **Scripts** (automatisch geklont und gestowt)
+
+### Manuelle Dotfiles-Einrichtung
+
+Falls Dotfiles-Abhängigkeiten nicht installiert wurden:
 
 ```bash
-# SSH-Key für GitHub erstellen
-ssh-keygen -t ed25519 -C "email@example.com"
-cat ~/.ssh/id_ed25519.pub
-# Key in GitHub hinterlegen
-
-# Dotfiles klonen
-git clone git@github.com:Sampirer/dotfiles.git ~/dotfiles
-cd ~/dotfiles
-stow bash qtile x11 alacritty
-```
-
-### AUR-Helper + Brave
-
-```bash
-# yay installieren
+# yay AUR-Helper installieren
 git clone https://aur.archlinux.org/yay.git /tmp/yay
 cd /tmp/yay && makepkg -si
 
-# Brave installieren
+# blesh installieren
+yay -S blesh
+
+# Dotfiles klonen und einrichten
+git clone https://github.com/Sampirer/dotfiles.git ~/dotfiles
+cd ~/dotfiles
+stow bash qtile alacritty picom dunst rofi starship blesh aider x11
+
+# Scripts klonen und einrichten
+git clone https://github.com/Sampirer/scripts.git ~/scripts
+cd ~/scripts
+stow .
+```
+
+### Brave Browser installieren
+
+```bash
+# Brave installieren (AUR)
 yay -S brave-bin
 ```
 
@@ -201,6 +245,9 @@ MIT
 
 ### v2.2
 
+- **Dotfiles-Installation automatisiert** – Optional: Repos klonen und stowen
+- **AUR-Support hinzugefügt** – yay AUR-Helper und blesh automatisch installiert
+- **Erweiterte Paketliste** – Alle benötigten Pakete für vollständiges Setup
 - Passwörter werden interaktiv im Chroot gesetzt (keine Variable-Übergabe)
 - Verbesserte Eingabevalidierung und Sicherheitsprüfungen
 - Optimierte Btrfs-Einstellungen
