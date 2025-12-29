@@ -687,11 +687,11 @@ install_desktop() {
         pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol
         # Tools
         thunar feh picom dunst brightnessctl
-        network-manager-applet
+        network-manager-applet lxappearance papirus-icon-theme tumbler nsxiv
         # Fonts
         ttf-dejavu ttf-liberation noto-fonts ttf-font-awesome
         # Utils
-        stow tree htop wget curl unzip
+        stow tree htop wget curl unzip vim usbutils
     )
     
     # Optionale Pakete
@@ -807,6 +807,53 @@ SNAPPER_SCRIPT
     print_step "Snapper-Konfiguration abgeschlossen"
 }
 
+install_aur_packages() {
+    print_section "AUR-Pakete"
+    
+    # Basis AUR-Pakete
+    local aur_packages=(
+        blesh
+        catppuccin-gtk-theme-mocha
+        sddm-sugar-candy-git
+    )
+    
+    # Optionale AUR-Pakete abfragen
+    local optional_packages=()
+    
+    if confirm "Brave Browser installieren?" "n"; then
+        optional_packages+=(brave-bin)
+    fi
+    
+    if confirm "Visual Studio Code installieren?" "n"; then
+        optional_packages+=(visual-studio-code-bin)
+    fi
+    
+    # Alle AUR-Pakete installieren
+    local all_aur_packages=("${aur_packages[@]}" "${optional_packages[@]}")
+    
+    if [[ ${#all_aur_packages[@]} -gt 0 ]]; then
+        cat > /mnt/install-aur-packages.sh << EOF
+#!/bin/bash
+set -e
+
+# Als User ausführen
+su - ${USERNAME} << 'AURPACKAGESEOF'
+
+echo "[✓] Installiere AUR-Pakete: ${all_aur_packages[*]}"
+yay -S --noconfirm ${all_aur_packages[*]}
+
+echo "[✓] AUR-Pakete installiert"
+AURPACKAGESEOF
+EOF
+
+        chmod +x /mnt/install-aur-packages.sh
+        arch-chroot /mnt /install-aur-packages.sh
+        rm /mnt/install-aur-packages.sh
+    fi
+    
+    print_step "AUR-Pakete installiert"
+}
+
 install_dotfiles_dependencies() {
     if [[ "$INSTALL_DOTFILES_DEPS" != true ]]; then
         return
@@ -817,7 +864,7 @@ install_dotfiles_dependencies() {
     # Dotfiles-spezifische Pakete
     local dotfiles_packages=(
         # Desktop & WM (qtile bereits installiert)
-        rofi feh
+        rofi feh rofi-calc
         # Terminal
         starship fzf zoxide
         # Schriften
@@ -831,7 +878,7 @@ install_dotfiles_dependencies() {
     print_step "Installiere Dotfiles-Abhängigkeiten"
     arch-chroot /mnt pacman -S --noconfirm "${dotfiles_packages[@]}"
     
-    # AUR-Helper und AUR-Pakete installieren
+    # AUR-Helper installieren
     cat > /mnt/install-aur.sh << EOF
 #!/bin/bash
 set -e
@@ -846,16 +893,16 @@ cd yay
 makepkg -si --noconfirm
 cd ~
 
-echo "[✓] Installiere blesh (AUR)"
-yay -S --noconfirm blesh
-
-echo "[✓] AUR-Pakete installiert"
+echo "[✓] yay AUR-Helper installiert"
 AUREOF
 EOF
 
     chmod +x /mnt/install-aur.sh
     arch-chroot /mnt /install-aur.sh
     rm /mnt/install-aur.sh
+    
+    # AUR-Pakete installieren
+    install_aur_packages
     
     # Starship für User konfigurieren
     cat > /mnt/install-starship.sh << EOF
@@ -943,43 +990,51 @@ EOF
     print_step "Benutzer-Setup abgeschlossen"
 }
 
-install_dotfiles_setup() {
+clone_dotfiles() {
     if [[ "$INSTALL_DOTFILES_DEPS" != true ]]; then
         return
     fi
     
     print_section "Dotfiles-Setup"
     
-    cat > /mnt/install-dotfiles.sh << EOF
+    cat > /mnt/clone-dotfiles.sh << EOF
 #!/bin/bash
 set -e
 
 # Als User ausführen
 su - ${USERNAME} << 'DOTFILESEOF'
 
+echo "[✓] Erstelle repos Verzeichnis"
+mkdir -p ~/repos
+
 echo "[✓] Klone Dotfiles-Repository"
-git clone https://github.com/Sampirer/dotfiles.git ~/dotfiles
+git clone https://github.com/Sampirer/dotfiles ~/repos/dotfiles
 
 echo "[✓] Klone Scripts-Repository"
-git clone https://github.com/Sampirer/scripts.git ~/scripts
+git clone https://github.com/Sampirer/scripts ~/repos/scripts
 
 echo "[✓] Stow Dotfiles-Konfigurationen"
-cd ~/dotfiles
-stow bash qtile alacritty picom dunst rofi starship blesh aider x11
+cd ~/repos/dotfiles
+stow -t ~ bash qtile alacritty picom dunst rofi starship blesh aider x11 flameshot htop git wallpapers
 
 echo "[✓] Stow Scripts"
-cd ~/scripts
-stow .
+cd ~/repos/scripts
+stow -t ~ .
 
 echo "[✓] Dotfiles-Setup abgeschlossen"
 DOTFILESEOF
 EOF
 
-    chmod +x /mnt/install-dotfiles.sh
-    arch-chroot /mnt /install-dotfiles.sh
-    rm /mnt/install-dotfiles.sh
+    chmod +x /mnt/clone-dotfiles.sh
+    arch-chroot /mnt /clone-dotfiles.sh
+    rm /mnt/clone-dotfiles.sh
     
     print_step "Dotfiles-Setup abgeschlossen"
+}
+
+install_dotfiles_setup() {
+    # Diese Funktion wird durch clone_dotfiles ersetzt
+    clone_dotfiles
 }
 
 #===============================================================================
@@ -1064,7 +1119,7 @@ main() {
     install_snapper
     install_dotfiles_dependencies
     install_user_setup
-    install_dotfiles_setup
+    clone_dotfiles
     
     # Abschluss
     print_header
