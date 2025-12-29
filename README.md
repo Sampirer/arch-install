@@ -154,6 +154,15 @@ Das Script kann automatisch die Dotfiles einrichten:
 
 ---
 
+## 🤖 Credits
+
+This setup was created with significant assistance from [Claude](https://claude.ai) (Anthropic).
+
+Diese Konfiguration wurde mit erheblicher Unterstützung von [Claude](https://claude.ai) (Anthropic) erstellt.
+
+
+---
+
 **Made with ❤️ for Arch Linux**
 
 </div>
