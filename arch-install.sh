@@ -687,7 +687,7 @@ install_desktop() {
         pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol
         # Tools
         thunar feh picom dunst brightnessctl
-        network-manager-applet lxappearance papirus-icon-theme tumbler nsxiv
+        network-manager-applet lxappearance nsxiv papirus-icon-theme tumbler
         # Fonts
         ttf-dejavu ttf-liberation noto-fonts ttf-font-awesome
         # Utils
