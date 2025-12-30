@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #===============================================================================
-# Arch Linux Minimal Install Script v2.5
+# Arch Linux Minimal Install Script v2.6
 # 
 # Features:
 # - Interaktive Konfiguration
@@ -11,9 +11,10 @@
 # - Qtile Desktop
 #
 # Changelog:
+# v2.6: Snapper als Firstboot-Service (DBus-Fix)
 # v2.5: DKMS autoinstall vor mkinitcpio, nvidia-drm.modeset=1, Pacman Hook
 # v2.4: nvidia-dkms, reflector für Mirrors, multilib aktiviert
-# v2.2: Passwörter werden interaktiv im Chroot gesetzt (keine Variable-Übergabe)
+# v2.2: Passwörter werden interaktiv im Chroot gesetzt
 # v2.1: NVIDIA-Module werden erst nach Treiberinstallation eingetragen
 #===============================================================================
 
@@ -34,7 +35,7 @@ NC='\033[0m'
 print_header() {
     clear
     echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${NC}${BOLD}  Arch Linux Minimal Install Script v2.5                    ${NC}${BLUE}║${NC}"
+    echo -e "${BLUE}║${NC}${BOLD}  Arch Linux Minimal Install Script v2.6                    ${NC}${BLUE}║${NC}"
     echo -e "${BLUE}║${NC}  Btrfs + Snapper + Qtile                                    ${BLUE}║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -814,26 +815,43 @@ install_snapper() {
         return
     fi
     
-    print_section "Snapper-Konfiguration"
+    print_section "Snapper-Konfiguration (Firstboot)"
     
-    cat > /mnt/install-snapper.sh << 'SNAPPER_SCRIPT'
+    # Snapper kann nicht im chroot konfiguriert werden (braucht DBus)
+    # Lösung: Firstboot-Service der beim ersten echten Boot läuft
+    
+    print_step "Erstelle Snapper Firstboot-Service"
+    
+    # Das Setup-Script
+    cat > /mnt/usr/local/bin/snapper-firstboot.sh << 'SNAPPER_SCRIPT'
 #!/bin/bash
 set -e
 
-echo "[✓] Konfiguriere Snapper"
+LOG="/var/log/snapper-firstboot.log"
+exec > >(tee -a "$LOG") 2>&1
+
+echo "=== Snapper Firstboot Setup $(date) ==="
+
+# Warte auf DBus
+sleep 5
 
 # Snapper-Config erstellen
+echo "[1/7] Unmounte /.snapshots falls gemountet..."
 umount /.snapshots 2>/dev/null || true
 rmdir /.snapshots 2>/dev/null || true
 
+echo "[2/7] Erstelle Snapper-Konfiguration..."
 snapper -c root create-config /
 
+echo "[3/7] Lösche automatisch erstelltes Subvolume..."
 btrfs subvolume delete /.snapshots
+
+echo "[4/7] Erstelle Mountpoint und mounte..."
 mkdir /.snapshots
 mount -a
 chmod 750 /.snapshots
 
-# Snapper-Einstellungen
+echo "[5/7] Konfiguriere Snapper-Einstellungen..."
 sed -i 's/TIMELINE_CREATE="no"/TIMELINE_CREATE="yes"/' /etc/snapper/configs/root
 sed -i 's/TIMELINE_LIMIT_HOURLY="[0-9]*"/TIMELINE_LIMIT_HOURLY="3"/' /etc/snapper/configs/root
 sed -i 's/TIMELINE_LIMIT_DAILY="[0-9]*"/TIMELINE_LIMIT_DAILY="5"/' /etc/snapper/configs/root
@@ -841,25 +859,51 @@ sed -i 's/TIMELINE_LIMIT_WEEKLY="[0-9]*"/TIMELINE_LIMIT_WEEKLY="3"/' /etc/snappe
 sed -i 's/TIMELINE_LIMIT_MONTHLY="[0-9]*"/TIMELINE_LIMIT_MONTHLY="1"/' /etc/snapper/configs/root
 sed -i 's/TIMELINE_LIMIT_YEARLY="[0-9]*"/TIMELINE_LIMIT_YEARLY="0"/' /etc/snapper/configs/root
 
-# Timer aktivieren
-systemctl enable snapper-timeline.timer
-systemctl enable snapper-cleanup.timer
-systemctl enable grub-btrfsd
-
-# GRUB aktualisieren
+echo "[6/7] Aktiviere Timer und aktualisiere GRUB..."
+systemctl enable --now snapper-timeline.timer
+systemctl enable --now snapper-cleanup.timer
+systemctl enable --now grub-btrfsd
 grub-mkconfig -o /boot/grub/grub.cfg
 
-# Initialen Snapshot erstellen
+echo "[7/7] Erstelle initialen Snapshot..."
 snapper -c root create -d "Fresh Install"
 
-echo "[✓] Snapper-Konfiguration abgeschlossen"
+echo "=== Snapper Firstboot Setup abgeschlossen ==="
+
+# Service deaktivieren (einmalig)
+systemctl disable snapper-firstboot.service
+
+echo "Firstboot-Service deaktiviert. Setup komplett!"
 SNAPPER_SCRIPT
 
-    chmod +x /mnt/install-snapper.sh
-    arch-chroot /mnt /install-snapper.sh
-    rm /mnt/install-snapper.sh
+    chmod +x /mnt/usr/local/bin/snapper-firstboot.sh
     
-    print_step "Snapper-Konfiguration abgeschlossen"
+    # Systemd Service
+    cat > /mnt/etc/systemd/system/snapper-firstboot.service << 'SNAPPER_SERVICE'
+[Unit]
+Description=Snapper Firstboot Configuration
+After=local-fs.target dbus.service
+Wants=dbus.service
+ConditionPathExists=!/var/lib/snapper-firstboot-done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/snapper-firstboot.sh
+ExecStartPost=/usr/bin/touch /var/lib/snapper-firstboot-done
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+SNAPPER_SERVICE
+
+    # Service aktivieren
+    arch-chroot /mnt systemctl enable snapper-firstboot.service
+    
+    # Timer können wir schon mal enablen (starten erst nach snapper-config)
+    arch-chroot /mnt systemctl enable grub-btrfsd 2>/dev/null || true
+    
+    print_step "Snapper Firstboot-Service erstellt"
+    print_info "Snapper wird beim ersten Boot automatisch konfiguriert"
 }
 
 install_aur_packages() {
