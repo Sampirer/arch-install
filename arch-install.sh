@@ -70,7 +70,7 @@ confirm() {
         prompt="$prompt [y/N]: "
     fi
     
-    read -r -p "$prompt" response
+    read -p "$prompt" response
     response=${response:-$default}
     [[ "$response" =~ ^[Yy]$ ]]
 }
@@ -81,10 +81,10 @@ prompt_input() {
     local result
     
     if [[ -n "$default" ]]; then
-        read -r -p "$prompt [$default]: " result
+        read -p "$prompt [$default]: " result
         echo "${result:-$default}"
     else
-        read -r -p "$prompt: " result
+        read -p "$prompt: " result
         echo "$result"
     fi
 }
@@ -216,6 +216,13 @@ configure_partitions() {
     EFI_SIZE=$(prompt_input "EFI-Partition Größe" "1G")
     SWAP_SIZE=$(prompt_input "Swap-Partition Größe" "${recommended_swap}G")
     
+    echo ""
+    if confirm "Separate Home-Partition erstellen?" "n"; then
+        SEPARATE_HOME=true
+        HOME_SIZE=$(prompt_input "Home-Partition Größe (oder 'rest' für Rest)" "rest")
+    else
+        SEPARATE_HOME=false
+    fi
 }
 
 configure_gpu() {
@@ -467,8 +474,8 @@ install_partition() {
     sgdisk --zap-all "$DISK"
     
     print_step "Erstelle neue Partitionen"
-    sgdisk --new=1:0:+"${EFI_SIZE}" --typecode=1:ef00 --change-name=1:"EFI" "$DISK"
-    sgdisk --new=2:0:+"${SWAP_SIZE}" --typecode=2:8200 --change-name=2:"SWAP" "$DISK"
+    sgdisk --new=1:0:+${EFI_SIZE} --typecode=1:ef00 --change-name=1:"EFI" "$DISK"
+    sgdisk --new=2:0:+${SWAP_SIZE} --typecode=2:8200 --change-name=2:"SWAP" "$DISK"
     sgdisk --new=3:0:0 --typecode=3:8300 --change-name=3:"ROOT" "$DISK"
     
     # Kernel über Partitionsänderungen informieren
@@ -664,38 +671,32 @@ CHROOT_SCRIPT
 install_desktop() {
     print_section "Desktop-Installation"
     
-    local gpu_packages_array=()
-    if [[ -n "$GPU_PACKAGES" ]]; then
-        read -r -a gpu_packages_array <<< "$GPU_PACKAGES"
-    fi
-
-    # Desktop-Pakete (Basis + optionale GPU-Treiber)
+    # Desktop-Pakete
     local desktop_packages=(
+        # Xorg
         xorg-server xorg-xinit xorg-xrandr xorg-xsetroot
-    )
-
-    if ((${#gpu_packages_array[@]} > 0)); then
-        desktop_packages+=("${gpu_packages_array[@]}")
-    fi
-
-    desktop_packages+=(
+        # GPU (mit Fehlerbehandlung)
+        $GPU_PACKAGES
+        # Zusätzliche Mesa-Pakete für bessere Kompatibilität
         mesa-utils
+        # Qtile
         qtile python-psutil python-iwlib
+        # Terminal
         alacritty
+        # Audio
         pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol
+        # Tools
         thunar feh picom dunst brightnessctl
         network-manager-applet lxappearance nsxiv papirus-icon-theme tumbler
+        # Fonts
         ttf-dejavu ttf-liberation noto-fonts ttf-font-awesome
+        # Utils
         stow tree htop wget curl unzip vim usbutils
     )
     
     # Optionale Pakete
     [[ "$INSTALL_FIREFOX" == true ]] && desktop_packages+=(firefox)
-    if [[ -n "$DISPLAY_MANAGER" ]]; then
-        local dm_packages=()
-        read -r -a dm_packages <<< "$DISPLAY_MANAGER"
-        desktop_packages+=("${dm_packages[@]}")
-    fi
+    [[ -n "$DISPLAY_MANAGER" ]] && desktop_packages+=($DISPLAY_MANAGER)
     [[ "$INSTALL_BLUETOOTH" == true ]] && desktop_packages+=(bluez blueman)
     [[ "$INSTALL_CUPS" == true ]] && desktop_packages+=(cups cups-pdf)
     [[ "$INSTALL_SNAPPER" == true ]] && desktop_packages+=(snapper snap-pac grub-btrfs inotify-tools)
