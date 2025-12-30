@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #===============================================================================
-# Arch Linux Minimal Install Script v2.4
+# Arch Linux Minimal Install Script v2.5
 # 
 # Features:
 # - Interaktive Konfiguration
@@ -11,7 +11,8 @@
 # - Qtile Desktop
 #
 # Changelog:
-# v2.4: nvidia-dkms statt nvidia, reflector für Mirrors, robustere Installation
+# v2.5: DKMS autoinstall vor mkinitcpio, nvidia-drm.modeset=1, Pacman Hook
+# v2.4: nvidia-dkms, reflector für Mirrors, multilib aktiviert
 # v2.2: Passwörter werden interaktiv im Chroot gesetzt (keine Variable-Übergabe)
 # v2.1: NVIDIA-Module werden erst nach Treiberinstallation eingetragen
 #===============================================================================
@@ -33,7 +34,7 @@ NC='\033[0m'
 print_header() {
     clear
     echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${NC}${BOLD}  Arch Linux Minimal Install Script v2.4                    ${NC}${BLUE}║${NC}"
+    echo -e "${BLUE}║${NC}${BOLD}  Arch Linux Minimal Install Script v2.5                    ${NC}${BLUE}║${NC}"
     echo -e "${BLUE}║${NC}  Btrfs + Snapper + Qtile                                    ${BLUE}║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -752,18 +753,57 @@ KBEOF
     
     print_step "Desktop-Installation abgeschlossen"
     
-    # NVIDIA: Jetzt Module hinzufügen und mkinitcpio neu bauen
+    # NVIDIA: DKMS bauen, dann Kernel-Parameter setzen
     if [[ "$NEEDS_NVIDIA" == true ]]; then
         print_section "NVIDIA-Konfiguration"
         
-        print_step "Konfiguriere NVIDIA-Module in Initramfs"
-        sed -i "s/^MODULES=(.*/MODULES=(${MKINIT_MODULES} btrfs)/" /mnt/etc/mkinitcpio.conf
+        # DKMS Module bauen (WICHTIG: muss vor mkinitcpio passieren!)
+        print_step "Baue NVIDIA-Module mit DKMS"
+        arch-chroot /mnt dkms autoinstall
         
-        print_step "Baue Initramfs mit NVIDIA-Modulen neu"
+        # Prüfen ob Module gebaut wurden
+        if arch-chroot /mnt ls /lib/modules/*/extramodules/nvidia.ko* &>/dev/null; then
+            print_step "NVIDIA-Module erfolgreich gebaut"
+        else
+            print_warn "NVIDIA-Module nicht gefunden - fahre trotzdem fort"
+        fi
+        
+        # NVIDIA-Module in initramfs (optional, aber schadet nicht)
+        print_step "Konfiguriere Initramfs"
+        sed -i "s/^MODULES=(.*/MODULES=(btrfs)/" /mnt/etc/mkinitcpio.conf
+        
+        # Initramfs neu bauen
+        print_step "Baue Initramfs neu"
         arch-chroot /mnt mkinitcpio -P
         
+        # NVIDIA DRM modeset als Kernel-Parameter (der wichtige Teil!)
+        print_step "Konfiguriere NVIDIA Kernel-Parameter"
+        sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\([^"]*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 nvidia-drm.modeset=1"/' /mnt/etc/default/grub
+        
+        # GRUB aktualisieren
         print_step "Aktualisiere GRUB"
         arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+        
+        # NVIDIA Pacman Hook für automatische mkinitcpio bei Updates
+        print_step "Erstelle NVIDIA Pacman Hook"
+        mkdir -p /mnt/etc/pacman.d/hooks
+        cat > /mnt/etc/pacman.d/hooks/nvidia.hook << 'NVHOOK'
+[Trigger]
+Operation=Install
+Operation=Upgrade
+Operation=Remove
+Type=Package
+Target=nvidia-dkms
+Target=linux
+Target=linux-lts
+
+[Action]
+Description=Update NVIDIA module in initcpio
+Depends=mkinitcpio
+When=PostTransaction
+NeedsTargets
+Exec=/bin/sh -c 'while read -r trg; do case $trg in linux*) exit 0; esac; done; /usr/bin/mkinitcpio -P'
+NVHOOK
         
         print_step "NVIDIA-Konfiguration abgeschlossen"
     fi
