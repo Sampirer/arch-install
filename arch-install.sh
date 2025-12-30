@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #===============================================================================
-# Arch Linux Minimal Install Script v2.3
+# Arch Linux Minimal Install Script v2.4
 # 
 # Features:
 # - Interaktive Konfiguration
@@ -11,7 +11,7 @@
 # - Qtile Desktop
 #
 # Changelog:
-# v2.3: pacman -Sy vor Desktop-Installation (Fix: nvidia not found)
+# v2.4: nvidia-dkms statt nvidia, reflector für Mirrors, robustere Installation
 # v2.2: Passwörter werden interaktiv im Chroot gesetzt (keine Variable-Übergabe)
 # v2.1: NVIDIA-Module werden erst nach Treiberinstallation eingetragen
 #===============================================================================
@@ -33,7 +33,7 @@ NC='\033[0m'
 print_header() {
     clear
     echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${NC}${BOLD}  Arch Linux Minimal Install Script v2.3                    ${NC}${BLUE}║${NC}"
+    echo -e "${BLUE}║${NC}${BOLD}  Arch Linux Minimal Install Script v2.4                    ${NC}${BLUE}║${NC}"
     echo -e "${BLUE}║${NC}  Btrfs + Snapper + Qtile                                    ${BLUE}║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -269,13 +269,13 @@ configure_gpu() {
             ;;
         3)
             GPU_TYPE="nvidia"
-            GPU_PACKAGES="nvidia nvidia-utils nvidia-settings"
+            GPU_PACKAGES="nvidia-dkms nvidia-utils nvidia-settings"
             MKINIT_MODULES="nvidia nvidia_modeset nvidia_uvm nvidia_drm"
             NEEDS_NVIDIA=true
             ;;
         4)
             GPU_TYPE="nvidia-intel"
-            GPU_PACKAGES="mesa intel-media-driver nvidia nvidia-utils nvidia-prime"
+            GPU_PACKAGES="mesa intel-media-driver nvidia-dkms nvidia-utils nvidia-prime"
             MKINIT_MODULES="i915 nvidia nvidia_modeset nvidia_uvm nvidia_drm"
             NEEDS_NVIDIA=true
             ;;
@@ -672,8 +672,18 @@ CHROOT_SCRIPT
 install_desktop() {
     print_section "Desktop-Installation"
     
-    # Paketdatenbank synchronisieren (wichtig im chroot!)
-    print_step "Synchronisiere Paketdatenbank"
+    # Mirrorlist und Paketdatenbank aktualisieren (KRITISCH für nvidia!)
+    print_step "Aktualisiere Mirrorlist und Paketdatenbank"
+    
+    # Reflector im chroot installieren und beste Mirrors holen
+    arch-chroot /mnt pacman -Sy --noconfirm reflector
+    arch-chroot /mnt reflector --country Germany,Austria,Switzerland --protocol https --sort rate --latest 10 --save /etc/pacman.d/mirrorlist
+    
+    # Vollständiges Datenbank-Update
+    arch-chroot /mnt pacman -Syyu --noconfirm
+    
+    # multilib aktivieren für 32-bit NVIDIA libs
+    sed -i "/\[multilib\]/,/Include/s/^#//" /mnt/etc/pacman.conf
     arch-chroot /mnt pacman -Sy --noconfirm
     
     # Desktop-Pakete
