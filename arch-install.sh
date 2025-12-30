@@ -702,6 +702,7 @@ install_desktop() {
     
     # Desktop-Pakete installieren
     print_step "Installiere Desktop-Pakete"
+    arch-chroot /mnt pacman -Sy --noconfirm "${desktop_packages[@]}"
     arch-chroot /mnt pacman -S --noconfirm "${desktop_packages[@]}"
     
     # X11 Keyboard Layout
