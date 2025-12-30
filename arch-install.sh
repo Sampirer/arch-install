@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #===============================================================================
-# Arch Linux Minimal Install Script v2.2
+# Arch Linux Minimal Install Script v2.3
 # 
 # Features:
 # - Interaktive Konfiguration
@@ -11,6 +11,7 @@
 # - Qtile Desktop
 #
 # Changelog:
+# v2.3: pacman -Sy vor Desktop-Installation (Fix: nvidia not found)
 # v2.2: Passwörter werden interaktiv im Chroot gesetzt (keine Variable-Übergabe)
 # v2.1: NVIDIA-Module werden erst nach Treiberinstallation eingetragen
 #===============================================================================
@@ -32,7 +33,7 @@ NC='\033[0m'
 print_header() {
     clear
     echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${NC}${BOLD}  Arch Linux Minimal Install Script v2.2                    ${NC}${BLUE}║${NC}"
+    echo -e "${BLUE}║${NC}${BOLD}  Arch Linux Minimal Install Script v2.3                    ${NC}${BLUE}║${NC}"
     echo -e "${BLUE}║${NC}  Btrfs + Snapper + Qtile                                    ${BLUE}║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -670,6 +671,10 @@ CHROOT_SCRIPT
 
 install_desktop() {
     print_section "Desktop-Installation"
+    
+    # Paketdatenbank synchronisieren (wichtig im chroot!)
+    print_step "Synchronisiere Paketdatenbank"
+    arch-chroot /mnt pacman -Sy --noconfirm
     
     # Desktop-Pakete
     local desktop_packages=(
